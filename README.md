@@ -86,3 +86,11 @@ If you ever want to return your system to completely stock settings, simply run 
 The script will scrub your GRUB bootloader, delete the core-sweep services, restore swap files, and reset your network/sysctl rules to factory defaults automatically.
 
 Feedback welcome!
+
+
+Credits:
+
+Latency and Gaming server members
+Cachyos server members 
+Others across reddit and lots of forums
+
