@@ -127,9 +127,15 @@ Select R at the tuning prompt.
 The script will selectively remove flags from your chosen bootloader, restore sysctl rules, re-enable swap, remove systemd affinity overrides, delete sweep services, and automatically rebuild your boot menu.
 
 ### Credits & References
+
 Low Latency System Guide
+
 SUSE CPU Isolation Guide
+
 Erik Rigtorp - Low Latency Tuning
+
 Red Hat Enterprise Linux Real-Time Tuning
+
 TuneD Project
+
 CachyOS and Linux Latency Tuning Communities
