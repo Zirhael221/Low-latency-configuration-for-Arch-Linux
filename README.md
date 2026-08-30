@@ -46,67 +46,68 @@ Built specifically for modern Arch/CachyOS systems, this script reaches deep int
 
 To prove how effectively this script clears out OS bloat and prioritizes raw hardware speed, here is a 60-second Real-Time kernel benchmark (`cyclictest`) run on isolated cores.
 
+```text
 /dev/cpu_dma_latency set to 0us
 policy: fifo: loadavg: 0.47 1.01 0.76 1/409 4079
 
 T: 0 ( 4063) P:99 I:1000 C:  59996 Min:      1 Act:    1 Avg:    1 Max:       9
 T: 1 ( 4064) P:99 I:1500 C:  39997 Min:      1 Act:    1 Avg:    1 Max:       6
 T: 2 ( 4065) P:99 I:2000 C:  29998 Min:      1 Act:    1 Avg:    1 Max:       5
+```
 
 **The Command:**
 ```bash
 sudo cyclictest --affinity=1-3 --threads=3 --priority=99 --interval=1000 --duration=60s -m
+```
 
-What do these numbers mean?
-cyclictest measures OS Jitter—the delay between when hardware asks the CPU to do something (like a mouse click) and when the CPU actually executes it. It is measured in microseconds (µs).
+### What do these numbers mean?
+`cyclictest` measures OS Jitter—the delay between when hardware asks the CPU to do something (like a mouse click) and when the CPU actually executes it. It is measured in microseconds (µs).
 
-/dev/cpu_dma_latency set to 0us: Proves C-state and power-polling tweaks are working. The CPU is not sleeping; it is held completely awake to await instructions.
-
-Avg: 1: The isolated gaming cores are executing instructions with an average delay of exactly 1 microsecond (0.001 milliseconds).
-
-Max: 9 / 6 / 5: This is the most important metric. Over a full 60 seconds of hammering the CPU, the absolute worst-case delay before a core responded was 9 microseconds (0.009 milliseconds).
+* **/dev/cpu_dma_latency set to 0us:** Proves C-state and power-polling tweaks are working. The CPU is not sleeping; it is held completely awake to await instructions.
+* **Avg: 1:** The isolated gaming cores are executing instructions with an average delay of exactly 1 microsecond (0.001 milliseconds).
+* **Max: 9 / 6 / 5:** This is the most important metric. Over a full 60 seconds of hammering the CPU, the absolute worst-case delay before a core responded was 9 microseconds (0.009 milliseconds).
 
 A standard desktop Linux kernel often spikes to 200–1000+ microseconds of jitter because the kernel pauses your game to handle background tasks. This script achieves near-perfect bare-metal latency. For gaming, this translates to absolutely flawless 1:1 mouse tracking and flatline frametimes with zero OS-level micro-stutters.
 
-Installation
+## 🛠️ Installation
 
 1. Create the script file in your local bin directory:
    ```bash
    sudo nano /usr/local/bin/zxcv.cpu.partition
+   ```
+2. Paste the script contents into the editor, save, and exit.
+3. Make the script executable:
+   ```bash
+   sudo chmod +x /usr/local/bin/zxcv.cpu.partition
+   ```
 
-Paste the script contents into the editor, save, and exit.
+## 🎮 Usage
 
-Make the script executable:
-sudo chmod +x /usr/local/bin/zxcv.cpu.partition
-
+```bash
 sudo zxcv.cpu.partition
+```
 
-
-The Prompts:
+### The Prompts:
 You will be asked a series of simple questions to tailor the script to your exact hardware:
 
-Apply or Revert: Choose A to apply tuning, or R to completely restore your system to factory OS defaults.
+* **Apply or Revert:** Choose A to apply tuning, or R to completely restore your system to factory OS defaults.
+* **Vendor:** Select Intel (i) or AMD (a) to apply the correct microcode and IOMMU flags.
+* **NVIDIA Optimus:** If you use an NVIDIA GPU on a laptop with an Intel iGPU, select y to apply critical X11 display deadlock fixes.
+* **Swap Purge:** Select y to permanently kill ZRAM, ZSWAP, and physical disk swap (requires 16GB+ of RAM).
+* **Strict Isolation:**
+  * If you want to isolate cores for game threads: Select y, and input your desired Housekeeping (e.g., 0,1) and Isolated (e.g., 2-7) cores.
+  * (Please dont set all cores as isolated. Leave as many for housekeeping as you can)
+  * (Eg. For a 4 core cpu if you hit your desired fps on 2 core leave other 2 for housekeeping)
 
-Vendor: Select Intel (i) or AMD (a) to apply the correct microcode and IOMMU flags.
-
-NVIDIA Optimus: If you use an NVIDIA GPU on a laptop with an Intel iGPU, select y to apply critical X11 display deadlock fixes.
-
-Swap Purge: Select y to permanently kill ZRAM, ZSWAP, and physical disk swap (requires 16GB+ of RAM).
-
-Strict Isolation:
-
-If you want to isolate cores for game threads: Select y, and input your desired Housekeeping (e.g., 0,1) and Isolated (e.g., 2-7) cores.
-  (Please dont set all cores as isolated. Leave as many for housekeeping as you can)
-  (Eg. For a 4 core cpu if you hit your desired fps on 2 core leave other 2 for housekeeping)
-
-Launching Your Games
+### Launching Your Games
 Once the script finishes and you reboot, your system is fully primed. Because the script grants non-root Real-Time privileges, you can launch games directly via Steam using this launch option:
 
-If you enabled Strict Isolation:
-
+**If you enabled Strict Isolation:**
+```text
 chrt -r 50 taskset -c yourisolatedcores %command%
+```
 
-Uninstallation
+## ♻️ Uninstallation
 If you ever want to return your system to completely stock settings, simply run the script again and select R (Revert).
 
 The script will scrub your GRUB bootloader, delete the core-sweep services, restore swap files, and reset your network/sysctl rules to factory defaults automatically.
@@ -114,14 +115,12 @@ The script will scrub your GRUB bootloader, delete the core-sweep services, rest
 Feedback welcome!
 
 
-Credits:
-
-https://lowlatencysystem.com/guide/
-https://www.suse.com/c/cpu-isolation-introduction-part-1/
-https://rigtorp.se/low-latency-guide/
-https://tuned-project.org/
-https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/9/html-single/optimizing_rhel_9_for_real_time_for_low_latency_operation/index
-Latency and Gaming server members
-Cachyos server members 
-Others across reddit and forums
-
+## 🙌 Credits:
+* [https://lowlatencysystem.com/guide/](https://lowlatencysystem.com/guide/)
+* [https://www.suse.com/c/cpu-isolation-introduction-part-1/](https://www.suse.com/c/cpu-isolation-introduction-part-1/)
+* [https://rigtorp.se/low-latency-guide/](https://rigtorp.se/low-latency-guide/)
+* [https://tuned-project.org/](https://tuned-project.org/)
+* [https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/9/html-single/optimizing_rhel_9_for_real_time_for_low_latency_operation/index](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/9/html-single/optimizing_rhel_9_for_real_time_for_low_latency_operation/index)
+* Latency and Gaming server members
+* Cachyos server members 
+* Others across reddit and forums
