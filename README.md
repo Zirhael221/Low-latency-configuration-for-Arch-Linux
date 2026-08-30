@@ -4,7 +4,8 @@ Collection of parameters and configurations to tune Arch Linux and CachyOS for u
 # zxcv.cpu.partition
 
 A hardcore, kernel-level tuning utility designed to eliminate micro-stutters, bypass hardware interrupts, and minimize jitter for gaming on Linux.
-FPS and Computational performance are not a metric considered in this configuration. It may or may not increase or decrease your fps and computational power. Latency and jitter are the primary considerations here.
+
+⚠️ FPS and Computational performance are not a metric considered in this configuration. It may or may not increase or decrease your fps and computational power. Latency and jitter are the primary considerations here.⚠️ 
 
 Built specifically for modern Arch Linux and CachyOS systems, this script reaches into the Linux scheduler, memory manager, power management, and I/O subsystems to force your operating system to prioritize game rendering above everything else.
 
