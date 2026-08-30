@@ -20,7 +20,7 @@ sudo systemctl disable --now ananicy-cpp irqbalance tuned
 
 VM / VFIO Users: This script disables IOMMU (iommu=off) to reduce DMA latency. This will break PCI Passthrough (VFIO) for Virtual Machines. Do not use this script on a host system dedicated to VM GPU passthrough.
 
-Features & Technical Breakdown
+### Features & Technical Breakdown
 1. Official CachyOS Bootloader Integration (GRUB, Limine, systemd-boot)
 What it does: Seamlessly parses and updates GRUB, Limine, and systemd-boot using native CachyOS utilities.
 How it works: You explicitly select your bootloader. For systemd-boot, the script hooks directly into /etc/sdboot-manage.conf and executes sdboot-manage gen. For Limine, it edits KERNEL_CMDLINE arrays in /etc/default/limine and natively triggers limine-mkinitcpio. (Fallback logic is included for standard Arch users without these utilities).
@@ -51,23 +51,23 @@ NVMe: Bypasses software queuing entirely (none).
 SATA SSDs: Applies low-latency request prioritization (kyber).
 Mechanical HDDs: Uses budget-fair queuing to prevent background read starvation (bfq).
 
-Core Topology Guide (SMT, HT, & AMD CCX)
+### Core Topology Guide (SMT, HT, & AMD CCX)
 For the absolute lowest latency, you must understand how your physical CPU cores are wired together.
 
-Modern Topology Warning
+### Modern Topology Warning
 Modern architectures (Intel 12th-14th Gen P-Cores/E-Cores and AMD Ryzen 7000/9000 series CCD layouts) have complex physical layouts. The old rule of "physical cores first, virtual second" no longer strictly applies. You MUST use lscpu -e or lstopo to verify your exact physical mapping before isolating cores to avoid accidentally isolating an E-core or splitting an L3 cache.
 Hyperthreading (Intel) & SMT (AMD)
 
-Recommendation: Disable HT/SMT in your motherboard BIOS. Virtual threads share the same execution pipeline and L1/L2 cache as their physical counterpart. Disabling them grants your game 100% exclusive access to the physical core's cache and execution engine.
+### Recommendation: Disable HT/SMT in your motherboard BIOS. Virtual threads share the same execution pipeline and L1/L2 cache as their physical counterpart. Disabling them grants your game 100% exclusive access to the physical core's cache and execution engine.
 If you cannot disable HT/SMT (Laptops): You MUST pair a physical core and its virtual sibling together. Never put a physical core in Housekeeping and its virtual sibling in Isolated (or vice versa), as they will fight over the same cache.
 
-AMD Ryzen Architecture (CCX & L3 Cache)
+### AMD Ryzen Architecture (CCX & L3 Cache)
 AMD processors group cores into Core Complexes (CCX). Cores inside the same CCX share a massive, ultra-fast L3 cache. If a game has to communicate across two different CCXs, the data travels over the slower Infinity Fabric, introducing latency and micro-stutters.
 
 Recommendation: When choosing Housekeeping and Isolated cores on AMD, isolate an entire CCX for the game and leave the other CCX for the operating system.
 Example (Ryzen 9 5900X): This CPU has 12 cores split across two 6-core CCXs. Assign CCX0 (Cores 0,1,2,3,4,5) to Housekeeping. Assign CCX1 (Cores 6-11) to Isolated. Your game now has a massive L3 cache entirely to itself with zero cross-CCX delay.
 
-Benchmark Proof (Real-Time Latency & Jitter)
+### Benchmark Proof (Real-Time Latency & Jitter)
 60-second Real-Time kernel jitter benchmark (cyclictest) on isolated cores running under Round-Robin (SCHED_RR) priority. (Requires the rt-tests package: sudo pacman -S rt-tests)
    ```
    sudo cyclictest --affinity=1-3 --threads=3 --priority=99 --policy=rr --interval=1000 --duration=60s -m
@@ -94,7 +94,7 @@ Run the utility as root:
 sudo zxcv.cpu.partition
 ```
 
-Configuration Prompts:
+### Configuration Prompts:
 Bootloader Selection: Choose explicitly between GRUB, Limine, or systemd-boot. The script natively uses sdboot-manage and limine-mkinitcpio if running on CachyOS.
 Apply or Revert: Select A to apply custom parameters or R to scrub changes and restore stock bootloader/sysctl defaults.
 Vendor: Choose Intel (i) or AMD (a) to apply processor-specific register flags.
@@ -110,14 +110,14 @@ With Strict Isolation:
 ```
 chrt -r 50 taskset -c <YOUR_ISOLATED_CORES> %command%
 ```
-Uninstallation
+### Uninstallation
 To revert all modifications:
 Run sudo zxcv.cpu.partition.
 Select your bootloader.
 Select R at the tuning prompt.
 The script will selectively remove flags from your chosen bootloader, restore sysctl rules, re-enable swap, remove systemd affinity overrides, delete sweep services, and automatically rebuild your boot menu.
 
-Credits & References
+### Credits & References
 Low Latency System Guide
 SUSE CPU Isolation Guide
 Erik Rigtorp - Low Latency Tuning
