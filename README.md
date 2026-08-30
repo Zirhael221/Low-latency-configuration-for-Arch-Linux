@@ -100,6 +100,23 @@ Run the utility as root:
 sudo zxcv.cpu.partition
 ```
 
+# 🧠 Core Topology Guide (SMT, HT, & AMD CCX)
+
+For the absolute lowest latency, you must understand how your physical CPU cores are wired together.
+
+### Hyperthreading (Intel) & SMT (AMD)
+* **Recommendation:** **Disable HT/SMT in your motherboard BIOS.** Virtual threads share the same execution pipeline and L1/L2 cache as their physical counterpart. Disabling them grants your game 100% exclusive access to the physical core's cache and execution engine.
+* **If you cannot disable HT/SMT (Laptops):** You **MUST** pair a physical core and its virtual sibling together. Never put a physical core in Housekeeping and its virtual sibling in Isolated (or vice versa), as they will fight over the same cache.
+  * *Example:* On a 4-core/8-thread CPU, Core `0` and Core `4` are siblings. Put `0,4` in Housekeeping, and isolate `1-3,5-7`.
+* **Finding Your Siblings:** Depending on your motherboard, Linux may enumerate siblings sequentially (Core 0 and 1 are siblings, 2 and 3 are siblings) OR by listing physical cores first (Core 0 and 4 are siblings). You must use the `lstopo` terminal command to verify your layout before choosing your isolated cores!
+
+### AMD Ryzen Architecture (CCX & L3 Cache)
+AMD processors group cores into Core Complexes (CCX). Cores inside the same CCX share a massive, ultra-fast L3 cache. If a game has to communicate across two different CCXs, the data travels over the slower Infinity Fabric, introducing latency and micro-stutters.
+* **Recommendation:** When choosing Housekeeping and Isolated cores on AMD, **isolate an entire CCX for the game** and leave the other CCX for the operating system. 
+  * *Example (Ryzen 9 5900X):* This CPU has 12 cores split across two 6-core CCXs. Assign CCX0 (Cores `0,1,2,3,4,5`) to Housekeeping. Assign CCX1 (Cores `6-11`) to Isolated. Your game now has a massive L3 cache entirely to itself with zero cross-CCX delay.
+
+*(Tip: You can use the `lstopo` command in the terminal to visualize your exact core, sibling, and CCX layout).*
+
 ### Configuration Prompts:
 * **Apply or Revert:** Select `A` to apply custom parameters or `R` to scrub changes and restore stock bootloader/sysctl defaults.
 * **Vendor:** Choose Intel (`i`) or AMD (`a`) to apply processor-specific register flags.
