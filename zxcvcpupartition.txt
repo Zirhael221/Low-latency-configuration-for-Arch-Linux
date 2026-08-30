@@ -1,307 +1,61 @@
-#!/usr/bin/env bash
+# zxcv.cpu.partition 
 
-# =====================================================================
-# zxcv.cpu.partition - UNIVERSAL LOW-LATENCY GAMING TUNER (V13)
-# =====================================================================
+A hardcore, kernel-level tuning utility designed to eliminate micro-stutters, bypass hardware interrupts, and minimize jitters for gaming on Linux. 
 
-if [[ $EUID -ne 0 ]]; then
-   echo "Error: This script must be run as root. Try: sudo zxcv.cpu.partition"
-   exit 1
-fi
+Built specifically for modern Arch/CachyOS systems, this script reaches deep into the Linux scheduler, memory manager, and I/O subsystems.
+You MUST disable conflicting user-space tuning daemons before using this script. If you leave these running, they will actively fight the script and cause massive stuttering.
+Run this in your terminal:
+`sudo systemctl disable --now ananicy-cpp irqbalance tuned`
+Please disable anyother performance tuning app or services installed than may conflict with this script!
 
-echo "========================================================="
-echo "       zxcv.cpu.partition - SYSTEM TUNING UTILITY"
-echo "========================================================="
-echo "Total CPU Threads available: $(nproc)"
-echo ""
+---
 
-# --- DEPENDENCY CHECK ---
-echo "[*] Checking system dependencies..."
-MISSING_PKGS=""
+## 🛑 Why Feral GameMode and Custom Schedulers are Obsolete Here
 
-check_dep() {
-    command -v "$1" >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS $2"
-}
+* **Feral GameMode / gamemoderun:** GameMode is just a user-space wrapper. All it does is tell the OS to change the CPU governor to `performance`, change the I/O scheduler, and apply a standard `renice` priority to the game. **This script already does all of this at the root kernel level.** Furthermore, because we launch the game with `chrt -r 50` (Real-Time priority), we completely override and outrank anything GameMode could ever do. Using GameMode alongside this script will just cause them to fight each other.
+* **Custom CPU Schedulers (BORE, EEVDF, Cachy):** The job of a CPU scheduler is to fairly divide CPU time between hundreds of fighting threads. Because our script uses `chrt` (Real-Time Round-Robin) and strict CPU isolation, **we bypass the fair scheduler entirely**. When a thread is marked Real-Time, the standard scheduler throws its hands up and just gives the core to the game infinitely. The scheduler algorithm literally doesn't matter anymore. However the housekeeping cores still follow the scheduler so if you have any application that benefits from using a custom scheduler please let me know and i can figure out a way for it to work.
 
-check_dep "grub-mkconfig" "grub"
-check_dep "sysctl" "procps-ng"
-check_dep "ps" "procps-ng"
-check_dep "taskset" "util-linux"
-check_dep "swapoff" "util-linux"
-check_dep "sed" "sed"
-check_dep "grep" "grep"
-check_dep "awk" "gawk"
+---
 
-MISSING_PKGS=$(echo "$MISSING_PKGS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+## 🚀 Features & What It Does
 
-if [[ -n "${MISSING_PKGS// /}" ]]; then
-    echo "[-] Missing required packages: $MISSING_PKGS"
-    read -p "> Automatically download and install them now? (y/N): " INSTALL_ANS
-    if [[ "$INSTALL_ANS" =~ ^[Yy]$ ]]; then
-        pacman -Sy --noconfirm --needed $MISSING_PKGS
-        if [[ $? -ne 0 ]]; then
-            echo "Error: Failed to install dependencies."
-            exit 1
-        fi
-    else
-        echo "Error: Cannot proceed without dependencies. Exiting."
-        exit 1
-    fi
-fi
+### 1. CPU Core Isolation & Thread Management 
+* **What it does:** Dedicates specific cores purely for gaming, while forcing the OS, background apps, and drivers onto "Housekeeping" cores.
+* **Isolation Rule:** Do not isolate too many cores. Only isolate the minimum amount of cores required to achieve your target FPS or performance to prevent OS thread starvation.
 
-# --- MAIN MENU ---
-echo ""
-read -p "> Do you want to (A)pply tuning or (R)evert to OS defaults? (a/r): " MENU_CHOICE
+### 2. GPU & Direct Memory Access (IOMMU)
+* **What it does:** Completely disables kernel virtualization security checks (`iommu=off`) for absolute bare-metal hardware speed, and locks PCIe lanes to max power (`pcie_aspm.policy=performance`).
+* **Why it matters:** The CPU stops auditing memory requests. Your GPU, NVMe drive, and Network Interface can read/write directly to physical RAM without translation overhead, heavily reducing input lag. Optimus laptops also get NVIDIA DRM modesetting to prevent "Async Page Flip" hard-freezes.
 
-if [[ "$MENU_CHOICE" =~ ^[Rr]$ ]]; then
-    echo ""
-    echo "========================================================="
-    echo " REVERTING SYSTEM TO FACTORY DEFAULTS..."
-    echo "========================================================="
-    
-    echo "[*] Scrubbing GRUB bootloader parameters..."
-    GRUB_FILE="/etc/default/grub"
-    TARGET_LINE=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE" | grep -v 'tuned_params' | head -n 1)
-    OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^GRUB_CMDLINE_LINUX_DEFAULT=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
-    CLEAN_BASE=$(echo "$OLD_CMD" | sed -E 's/\b(mitigations|workqueue\.power_efficient|transparent_hugepage|numa_balancing|audit|mce|skew_tick|tsc|rcupdate\.rcu_normal_after_boot|rcutree\.nohz_full_patience_delay|irqaffinity|nohz_full|rcu_nocbs|workqueue\.cpumask|isolcpus|intel_pstate|amd_pstate|zswap\.enabled|nvidia-drm\.modeset|nvidia-drm\.fbdev|intel_iommu|amd_iommu|iommu)=[^ ]*//g')
-    CLEAN_BASE=$(echo "$CLEAN_BASE" | sed -E 's/\b(nowatchdog|nosoftlockup|idle=poll|threadirqs)\b//g')
-    CLEAN_BASE=$(echo "$CLEAN_BASE" | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
+### 3. Memory Locking & Swap Assassination
+* **What it does:** Permanently disables physical disk swap, ZRAM, and ZSWAP, while granting all users `mlock` privileges.
+* **Why it matters:** Prevents the OS from temporarily moving game assets to your hard drive. Games and Proton can lock their data permanently into high-speed physical RAM, eliminating traversal stutters. (Automatically cleared when the game exits).
 
-    sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/ { /tuned_params/!d }' "$GRUB_FILE"
-    sed -i "/^GRUB_DISTRIBUTOR/a GRUB_CMDLINE_LINUX_DEFAULT=\"$CLEAN_BASE\"" "$GRUB_FILE"
-    
-    echo "[*] Removing custom network/latency sysctl rules..."
-    rm -f /etc/sysctl.d/99-zxcv-gaming.conf
-    
-    echo "[*] Removing systemd CPU affinity rules..."
-    rm -f /etc/systemd/system.conf.d/99-affinity.conf
-    
-    echo "[*] Removing custom I/O schedulers..."
-    rm -f /etc/udev/rules.d/99-custom-schedulers.rules
-    
-    echo "[*] Restoring Swap, ZRAM, and Privilege Limits..."
-    rm -f /etc/systemd/zram-generator.conf.d/99-disable.conf
-    rm -f /etc/security/limits.d/99-gaming-privileges.conf
-    sed -i -E 's/^#+(.*\bswap\b.*)/\1/' /etc/fstab
-    systemctl unmask swap.target > /dev/null 2>&1
-    
-    echo "[*] Deleting dynamic core-sweep background service..."
-    systemctl disable --now core-sweep.service 2>/dev/null
-    rm -f /etc/systemd/system/core-sweep.service
-    rm -f /usr/local/bin/core-sweep.sh
-    
-    echo "[*] Regenerating system files..."
-    grub-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1
-    systemctl daemon-reload
-    udevadm control --reload-rules
-    udevadm trigger --action=change
-    
-    echo "========================================================="
-    echo " REVERT COMPLETE! System restored to stock CachyOS."
-    echo "========================================================="
-    read -p "> Reboot now to apply? (y/N): " REBOOT_ANS
-    if [[ "$REBOOT_ANS" =~ ^[Yy]$ ]]; then
-        reboot
-    fi
-    exit 0
-fi
+### 4. Smart Power States (C-States & P-States)
+* **What it does:** Allows you to permanently pin the CPU at max frequency (`idle=poll`), OR use intelligent scaling that prevents deep sleep.
+* **Why it matters:** If you opt out of `idle=poll` (recommended for laptops), the script applies `cstate=1` and `pstate=active`. This allows the CPU to scale its clock speed to manage heat, but mathematically forbids the cores from entering deep sleep states (C2/C3), meaning wake-up latency remains at near-zero.
 
-# --- STEP 1: GATHER TARGETS & CONFIGURATIONS (APPLY MODE) ---
-echo ""
-read -p "> Are you using Intel or AMD? (i/a): " VENDOR
-read -p "> Are you using an NVIDIA GPU with Optimus / Hybrid setup? (y/N): " NVIDIA_CHOICE
-read -p "> Enable idle=poll permanently? (y/N): " POLL_CHOICE
-read -p "> Disable ALL Swap (Physical, ZRAM, and ZSWAP)? (y/N): " SWAP_CHOICE
-read -p "> Enable Strict CPU Core Isolation? (Say N for quad-core laptops) (y/N): " ISO_CHOICE
+### 5. Network & Sysctl Latency Tweaks
+* **What it does:** Edits the kernel's virtual memory and TCP/IP stack rules.
+* **Why it matters:** Uses **Busy Polling** (`busy_read=50`) so the CPU actively checks network sockets for new game packets instead of waiting for a hardware interrupt. Tweaks `dirty_ratio` to force the OS to write smaller data chunks in the background, preventing I/O stutters.
 
-if [[ "$ISO_CHOICE" =~ ^[Yy]$ ]]; then
-    read -p "  > Enter Housekeeping Cores (e.g., 0,1): " HK_CORES
-    read -p "  > Enter Isolated Cores (e.g., 2-3): " ISO_CORES
-    # Calculate Hex Mask
-    MASK=0
-    for cpu in ${HK_CORES//,/ }; do MASK=$((MASK | (1 << cpu))); done
-    HEX_MASK=$(printf '%x' $MASK)
-    # Build Isolation Params
-    ISO_PARAMS="irqaffinity=$HK_CORES nohz_full=$ISO_CORES rcu_nocbs=$ISO_CORES workqueue.cpumask=$HEX_MASK isolcpus=managed_irq,$ISO_CORES"
-    RT_RUNTIME="-1" # Safe to disable throttle if cores are isolated
-else
-    ISO_PARAMS=""
-    HK_CORES=""
-    RT_RUNTIME="950000" # Keep kernel safety throttle alive for shared cores
-fi
+---
 
-# --- STEP 2: BUILD NEW GRUB PARAMETERS ---
-BASE_PARAMS="nowatchdog mitigations=off workqueue.power_efficient=false nosoftlockup transparent_hugepage=never numa_balancing=disable audit=0 mce=off skew_tick=1 tsc=reliable rcupdate.rcu_normal_after_boot=1 rcutree.nohz_full_patience_delay=1000 threadirqs"
+## Installation
 
-if [[ "$VENDOR" =~ ^[Ii]$ ]]; then
-    VENDOR_PARAMS="intel_pstate=disable intel_iommu=on iommu=pt"
-elif [[ "$VENDOR" =~ ^[Aa]$ ]]; then
-    VENDOR_PARAMS="amd_pstate=disable amd_iommu=on iommu=pt"
-else
-    VENDOR_PARAMS=""
-fi
+1. Download the script directly from this repository:
 
-if [[ "$NVIDIA_CHOICE" =~ ^[Yy]$ ]]; then
-    NVIDIA_PARAMS="nvidia-drm.modeset=1 nvidia-drm.fbdev=1"
-else
-    NVIDIA_PARAMS=""
-fi
+   ```bash
+   curl -LO [https://raw.githubusercontent.com/Zirhael221/Low-latency-configuration-for-Arch-Linux/main/zxcvcpupartition.txt](https://raw.githubusercontent.com/Zirhael221/Low-latency-configuration-for-Arch-Linux/main/zxcvcpupartition.txt)
 
-if [[ "$POLL_CHOICE" =~ ^[Yy]$ ]]; then
-    POLL_PARAMS="idle=poll"
-else
-    POLL_PARAMS=""
-fi
+Move it to your local binaries and rename it:
 
-if [[ "$SWAP_CHOICE" =~ ^[Yy]$ ]]; then
-    SWAP_PARAMS="zswap.enabled=0"
-else
-    SWAP_PARAMS=""
-fi
+   sudo mv zxcvcpupartition.txt /usr/local/bin/zxcv.cpu.partition
 
-FINAL_PARAMS="$BASE_PARAMS $ISO_PARAMS $VENDOR_PARAMS $NVIDIA_PARAMS $POLL_PARAMS $SWAP_PARAMS"
+Make the script executable:
 
-# --- STEP 3: APPLY TO GRUB ---
-echo ""
-echo "[*] Rebuilding GRUB configuration..."
-GRUB_FILE="/etc/default/grub"
+   sudo chmod +x /usr/local/bin/zxcv.cpu.partition
 
-TARGET_LINE=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE" | grep -v 'tuned_params' | head -n 1)
-OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^GRUB_CMDLINE_LINUX_DEFAULT=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
+Run:
 
-CLEAN_BASE=$(echo "$OLD_CMD" | sed -E 's/\b(mitigations|workqueue\.power_efficient|transparent_hugepage|numa_balancing|audit|mce|skew_tick|tsc|rcupdate\.rcu_normal_after_boot|rcutree\.nohz_full_patience_delay|irqaffinity|nohz_full|rcu_nocbs|workqueue\.cpumask|isolcpus|intel_pstate|amd_pstate|zswap\.enabled|nvidia-drm\.modeset|nvidia-drm\.fbdev|intel_iommu|amd_iommu|iommu)=[^ ]*//g')
-CLEAN_BASE=$(echo "$CLEAN_BASE" | sed -E 's/\b(nowatchdog|nosoftlockup|idle=poll|threadirqs)\b//g')
-CLEAN_BASE=$(echo "$CLEAN_BASE" | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
-
-NEW_CMDLINE="GRUB_CMDLINE_LINUX_DEFAULT=\"$CLEAN_BASE $FINAL_PARAMS\""
-
-sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/ { /tuned_params/!d }' "$GRUB_FILE"
-sed -i "/^GRUB_DISTRIBUTOR/a $NEW_CMDLINE" "$GRUB_FILE"
-
-# --- STEP 4: SWAP & ZRAM CONTROL ---
-if [[ "$SWAP_CHOICE" =~ ^[Yy]$ ]]; then
-    echo "[*] Permanently disabling all Physical Swap, ZSWAP, and ZRAM..."
-    swapoff -a 2>/dev/null
-    sed -i -E 's/^([^#].*\bswap\b.*)/#\1/' /etc/fstab
-    systemctl mask swap.target > /dev/null 2>&1
-    
-    mkdir -p /etc/systemd/zram-generator.conf.d
-    echo -e "[zram0]\nzram-size = 0" > /etc/systemd/zram-generator.conf.d/99-disable.conf
-else
-    echo "[*] Ensuring Swap and ZRAM subsystems are enabled..."
-    sed -i -E 's/^#+(.*\bswap\b.*)/\1/' /etc/fstab
-    systemctl unmask swap.target > /dev/null 2>&1
-    rm -f /etc/systemd/zram-generator.conf.d/99-disable.conf
-fi
-
-# --- STEP 5: USER REAL-TIME & MEMLOCK PRIVILEGES ---
-echo "[*] Granting all users Real-Time (chrt) and Memory Lock (mlock) privileges..."
-mkdir -p /etc/security/limits.d
-cat <<EOF > /etc/security/limits.d/99-gaming-privileges.conf
-* - rtprio 99
-* - memlock unlimited
-EOF
-
-# --- STEP 6: NETWORK & LATENCY SYSCTL ---
-echo "[*] Applying deterministic Network & Latency Sysctl rules..."
-cat <<EOF > /etc/sysctl.d/99-zxcv-gaming.conf
-# Memory / VM
-vm.swappiness=10
-vm.dirty_ratio=10
-vm.dirty_background_ratio=3
-vm.stat_interval=10
-
-# CPU / Kernel
-kernel.numa_balancing=0
-kernel.hung_task_timeout_secs=600
-kernel.nmi_watchdog=0
-kernel.timer_migration=0
-
-# Real-Time Safety Throttle (Dynamically set based on isolation)
-kernel.sched_rt_runtime_us=$RT_RUNTIME
-
-# Network Polling
-net.core.busy_read=50
-net.core.busy_poll=50
-net.ipv4.tcp_fastopen=3
-EOF
-
-# --- STEP 7: I/O SCHEDULERS ---
-echo "[*] Applying Universal I/O Schedulers..."
-cat <<EOF > /etc/udev/rules.d/99-custom-schedulers.rules
-ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
-ACTION=="add|change", KERNEL=="sd[a-z]|mmcblk[0-9]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="kyber"
-ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
-EOF
-
-# --- STEP 8: SYSTEMD AFFINITY & CORE SWEEP (ONLY IF ISOLATED) ---
-if [[ "$ISO_CHOICE" =~ ^[Yy]$ ]]; then
-    echo "[*] Forcing systemd and user-space apps to Housekeeping cores..."
-    mkdir -p /etc/systemd/system.conf.d/
-    cat <<EOF > /etc/systemd/system.conf.d/99-affinity.conf
-[Manager]
-CPUAffinity=$HK_CORES
-EOF
-
-    echo "[*] Generating Dynamic Core Sweep Service..."
-    cat <<EOF > /usr/local/bin/core-sweep.sh
-#!/usr/bin/env bash
-taskset -pc $HK_CORES 2 2>/dev/null
-for tid in \$(ps -eT -o tid= | tr -d ' '); do
-    taskset -pc $HK_CORES \$tid 2>/dev/null
-done
-for wq in /sys/devices/virtual/workqueue/*/cpumask; do
-    echo $HEX_MASK > "\$wq" 2>/dev/null
-done
-echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null 2>&1
-for irq_tid in \$(ps -eT -o tid,comm | awk '\$2 ~ /^irq\// {print \$1}'); do
-    chrt -r -p 50 \$irq_tid 2>/dev/null
-done
-EOF
-    chmod +x /usr/local/bin/core-sweep.sh
-
-    cat <<EOF > /etc/systemd/system/core-sweep.service
-[Unit]
-Description=Dynamic Kernel Thread Sweep (Cores $HK_CORES)
-After=multi-user.target tuned.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/core-sweep.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl enable core-sweep.service > /dev/null 2>&1
-else
-    echo "[*] CPU Isolation disabled. Removing any active core-sweep rules..."
-    rm -f /etc/systemd/system.conf.d/99-affinity.conf
-    systemctl disable --now core-sweep.service 2>/dev/null
-    rm -f /etc/systemd/system/core-sweep.service
-    rm -f /usr/local/bin/core-sweep.sh
-fi
-
-# --- STEP 9: REBUILD AND RELOAD ---
-echo "[*] Regenerating system files..."
-grub-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1
-sysctl --system > /dev/null 2>&1
-systemctl daemon-reload
-udevadm control --reload-rules
-udevadm trigger --action=change
-
-echo "========================================================="
-echo " TUNING COMPLETE! "
-echo "========================================================="
-echo "You can now run 'chrt' without sudo!"
-if [[ "$ISO_CHOICE" =~ ^[Yy]$ ]]; then
-    echo "Your Steam Launch Option is: chrt -r 50 taskset -c $ISO_CORES %command%"
-else
-    echo "Your Steam Launch Option is: chrt -r 50 %command%"
-fi
-echo ""
-echo -n "Reboot now to apply all kernel changes? (y/N): "
-read REBOOT_ANS
-if [[ "$REBOOT_ANS" =~ ^[Yy]$ ]]; then
-    reboot
-fi
+sudo zxcv.cpu.partition
