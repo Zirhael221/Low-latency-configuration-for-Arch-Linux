@@ -107,7 +107,8 @@ NVIDIA Optimus: Select y if using hybrid graphics on a laptop.
 Disable All Swap: Select y to purge swap/ZRAM (requires adequate physical RAM).
 
 Strict CPU Core Isolation:
-Housekeeping Cores **CRITICAL): Separate cores with commas only (e.g., 0,1), never dashes. The script uses bitwise arithmetic (1 << cpu) to calculate the kernel workqueue hex mask; dashes are parsed as subtraction operators and break mask computation. Isolated cores (which the script hands directly to the kernel) can use dashes (e.g., 1-3,5-7).**
+
+Housekeeping Cores **(CRITICAL): Separate cores with commas only (e.g., 0,1), never dashes. The script uses bitwise arithmetic (1 << cpu) to calculate the kernel workqueue hex mask; dashes are parsed as subtraction operators and break mask computation. Isolated cores (which the script hands directly to the kernel) can use dashes (e.g., 1-3,5-7).**
 
 Isolated Cores: Enter your game cores.
 Tip: Do not isolate every core. Leave sufficient housekeeping cores for OS tasks to prevent thread contention.
