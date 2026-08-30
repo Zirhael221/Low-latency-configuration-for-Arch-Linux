@@ -55,10 +55,11 @@ Mechanical HDDs: Uses budget-fair queuing to prevent background read starvation 
 For the absolute lowest latency, you must understand how your physical CPU cores are wired together.
 
 ### Modern Topology Warning
-Modern architectures (Intel 12th-14th Gen P-Cores/E-Cores and AMD Ryzen 7000/9000 series CCD layouts) have complex physical layouts. The old rule of "physical cores first, virtual second" no longer strictly applies. You MUST use lscpu -e or lstopo to verify your exact physical mapping before isolating cores to avoid accidentally isolating an E-core or splitting an L3 cache.
-Hyperthreading (Intel) & SMT (AMD)
+### Modern architectures (Intel 12th-14th Gen P-Cores/E-Cores and AMD Ryzen 7000/9000 series CCD layouts) have complex physical layouts. The old rule of "physical cores first, virtual second" no longer strictly applies. You MUST use lscpu -e or lstopo to verify your exact physical mapping before isolating cores to avoid accidentally isolating an E-core or splitting an L3 cache.
 
-### Recommendation: Disable HT/SMT in your motherboard BIOS. Virtual threads share the same execution pipeline and L1/L2 cache as their physical counterpart. Disabling them grants your game 100% exclusive access to the physical core's cache and execution engine.
+### Hyperthreading (Intel) & SMT (AMD)
+
+Recommendation: Disable HT/SMT in your motherboard BIOS. Virtual threads share the same execution pipeline and L1/L2 cache as their physical counterpart. Disabling them grants your game 100% exclusive access to the physical core's cache and execution engine.
 If you cannot disable HT/SMT (Laptops): You MUST pair a physical core and its virtual sibling together. Never put a physical core in Housekeeping and its virtual sibling in Isolated (or vice versa), as they will fight over the same cache.
 
 ### AMD Ryzen Architecture (CCX & L3 Cache)
