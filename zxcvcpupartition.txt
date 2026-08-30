@@ -1,7 +1,13 @@
+
+***
+
+### 2. Updated Script (`zxcvcpupartition.txt`)
+
+```bash
 #!/usr/bin/env bash
 
 # =====================================================================
-# zxcv.cpu.partition - UNIVERSAL LOW-LATENCY GAMING TUNER (V15)
+# zxcv.cpu.partition - UNIVERSAL LOW-LATENCY GAMING TUNER (V20)
 # =====================================================================
 
 if [[ $EUID -ne 0 ]]; then
@@ -15,7 +21,6 @@ echo "========================================================="
 echo "Total CPU Threads available: $(nproc)"
 echo ""
 
-# --- DEPENDENCY CHECK ---
 echo "[*] Checking system dependencies..."
 MISSING_PKGS=""
 
@@ -23,7 +28,6 @@ check_dep() {
     command -v "$1" >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS $2"
 }
 
-check_dep "grub-mkconfig" "grub"
 check_dep "sysctl" "procps-ng"
 check_dep "ps" "procps-ng"
 check_dep "taskset" "util-linux"
@@ -38,9 +42,10 @@ if [[ -n "${MISSING_PKGS// /}" ]]; then
     echo "[-] Missing required packages: $MISSING_PKGS"
     read -p "> Automatically download and install them now? (y/N): " INSTALL_ANS
     if [[ "$INSTALL_ANS" =~ ^[Yy]$ ]]; then
-        pacman -Sy --noconfirm --needed $MISSING_PKGS
+        # Using -S instead of -Sy to prevent dangerous partial upgrades in Arch
+        pacman -S --noconfirm --needed $MISSING_PKGS
         if [[ $? -ne 0 ]]; then
-            echo "Error: Failed to install dependencies."
+            echo "Error: Failed to install dependencies. Please ensure your system is up to date (pacman -Syu)."
             exit 1
         fi
     else
@@ -49,7 +54,21 @@ if [[ -n "${MISSING_PKGS// /}" ]]; then
     fi
 fi
 
-# --- MAIN MENU ---
+clean_cmdline() {
+    local CMD="$1"
+    local CLEAN=$(echo "$CMD" | sed -E 's/\b(mitigations|workqueue\.power_efficient|transparent_hugepage|numa_balancing|audit|mce|skew_tick|tsc|rcupdate\.rcu_normal_after_boot|rcutree\.nohz_full_patience_delay|irqaffinity|nohz_full|rcu_nocbs|workqueue\.cpumask|isolcpus|intel_pstate|amd_pstate|processor\.max_cstate|intel_idle\.max_cstate|zswap\.enabled|nvidia-drm\.modeset|nvidia-drm\.fbdev|intel_iommu|amd_iommu|iommu|pcie_aspm\.policy)=[^ ]*//g')
+    CLEAN=$(echo "$CLEAN" | sed -E 's/\b(nowatchdog|nosoftlockup|idle=poll|threadirqs)\b//g')
+    CLEAN=$(echo "$CLEAN" | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
+    echo "$CLEAN"
+}
+
+echo ""
+echo "[ Bootloader Selection ]"
+echo "1) GRUB"
+echo "2) Limine"
+echo "3) systemd-boot"
+read -p "> Enter the number for your bootloader (1/2/3): " BOOT_CHOICE
+
 echo ""
 read -p "> Do you want to (A)pply tuning or (R)evert to OS defaults? (a/r): " MENU_CHOICE
 
@@ -59,16 +78,102 @@ if [[ "$MENU_CHOICE" =~ ^[Rr]$ ]]; then
     echo " REVERTING SYSTEM TO FACTORY DEFAULTS..."
     echo "========================================================="
     
-    echo "[*] Scrubbing GRUB bootloader parameters..."
-    GRUB_FILE="/etc/default/grub"
-    TARGET_LINE=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE" | grep -v 'tuned_params' | head -n 1)
-    OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^GRUB_CMDLINE_LINUX_DEFAULT=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
-    CLEAN_BASE=$(echo "$OLD_CMD" | sed -E 's/\b(mitigations|workqueue\.power_efficient|transparent_hugepage|numa_balancing|audit|mce|skew_tick|tsc|rcupdate\.rcu_normal_after_boot|rcutree\.nohz_full_patience_delay|irqaffinity|nohz_full|rcu_nocbs|workqueue\.cpumask|isolcpus|intel_pstate|amd_pstate|processor\.max_cstate|intel_idle\.max_cstate|zswap\.enabled|nvidia-drm\.modeset|nvidia-drm\.fbdev|intel_iommu|amd_iommu|iommu|pcie_aspm\.policy)=[^ ]*//g')
-    CLEAN_BASE=$(echo "$CLEAN_BASE" | sed -E 's/\b(nowatchdog|nosoftlockup|idle=poll|threadirqs)\b//g')
-    CLEAN_BASE=$(echo "$CLEAN_BASE" | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
-
-    sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/ { /tuned_params/!d }' "$GRUB_FILE"
-    sed -i "/^GRUB_DISTRIBUTOR/a GRUB_CMDLINE_LINUX_DEFAULT=\"$CLEAN_BASE\"" "$GRUB_FILE"
+    echo "[*] Scrubbing Bootloader parameters..."
+    
+    if [[ "$BOOT_CHOICE" == "1" ]]; then
+        if [[ -f /etc/default/grub ]]; then
+            GRUB_FILE="/etc/default/grub"
+            TARGET_LINE=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE" | grep -v 'tuned_params' | head -n 1)
+            OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^GRUB_CMDLINE_LINUX_DEFAULT=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
+            CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+            if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE"; then
+                sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$CLEAN_BASE\"|" "$GRUB_FILE"
+            else
+                echo "GRUB_CMDLINE_LINUX_DEFAULT=\"$CLEAN_BASE\"" >> "$GRUB_FILE"
+            fi
+        else
+            echo "[-] /etc/default/grub not found."
+        fi
+    elif [[ "$BOOT_CHOICE" == "2" ]]; then
+        FOUND_LIMINE=0
+        if [[ -f /etc/default/limine ]]; then
+            FOUND_LIMINE=1
+            TMP_LIMINE=$(mktemp)
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ "$line" =~ ^KERNEL_CMDLINE\[(.*)\]=\"(.*)\" ]]; then
+                    KEY="${BASH_REMATCH[1]}"
+                    OLD_CMD="${BASH_REMATCH[2]}"
+                    CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                    echo "KERNEL_CMDLINE[$KEY]=\"$CLEAN_BASE\"" >> "$TMP_LIMINE"
+                else
+                    echo "$line" >> "$TMP_LIMINE"
+                fi
+            done < /etc/default/limine
+            mv "$TMP_LIMINE" /etc/default/limine
+        fi
+        for raw_conf in /boot/limine.conf /boot/efi/limine.conf; do
+            if [[ -f "$raw_conf" ]]; then
+                FOUND_LIMINE=1
+                TMP_RAW=$(mktemp)
+                while IFS= read -r line || [[ -n "$line" ]]; do
+                    if [[ "$line" =~ ^([[:space:]]*cmdline:[[:space:]]*)(.*)$ ]]; then
+                        PREFIX="${BASH_REMATCH[1]}"
+                        OLD_CMD="${BASH_REMATCH[2]}"
+                        CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                        echo "${PREFIX}${CLEAN_BASE}" >> "$TMP_RAW"
+                    else
+                        echo "$line" >> "$TMP_RAW"
+                    fi
+                done < "$raw_conf"
+                mv "$TMP_RAW" "$raw_conf"
+            fi
+        done
+        if [[ $FOUND_LIMINE -eq 0 ]]; then
+            echo "[-] No Limine configuration files found."
+        fi
+    elif [[ "$BOOT_CHOICE" == "3" ]]; then
+        FOUND_SDB=0
+        if [[ -f /etc/sdboot-manage.conf ]]; then
+            FOUND_SDB=1
+            TARGET_LINE=$(grep '^LINUX_OPTIONS=' /etc/sdboot-manage.conf | head -n 1)
+            if [[ -n "$TARGET_LINE" ]]; then
+                OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^LINUX_OPTIONS=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
+                CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                sed -i "s|^LINUX_OPTIONS=.*|LINUX_OPTIONS=\"$CLEAN_BASE\"|" /etc/sdboot-manage.conf
+            fi
+        fi
+        for cmd_file in /etc/kernel/cmdline; do
+            if [[ -f "$cmd_file" ]]; then
+                FOUND_SDB=1
+                OLD_CMD=$(cat "$cmd_file")
+                CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                echo "$CLEAN_BASE" > "$cmd_file"
+            fi
+        done
+        for conf_dir in /boot/loader/entries /efi/loader/entries /boot/efi/loader/entries; do
+            if [[ -d "$conf_dir" ]]; then
+                for conf_file in "$conf_dir"/*.conf; do
+                    [[ -e "$conf_file" ]] || continue
+                    FOUND_SDB=1
+                    TMP_CONF=$(mktemp)
+                    while IFS= read -r line || [[ -n "$line" ]]; do
+                        if [[ "$line" =~ ^([[:space:]]*options[[:space:]]+)(.*)$ ]]; then
+                            PREFIX="${BASH_REMATCH[1]}"
+                            OLD_CMD="${BASH_REMATCH[2]}"
+                            CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                            echo "${PREFIX}${CLEAN_BASE}" >> "$TMP_CONF"
+                        else
+                            echo "$line" >> "$TMP_CONF"
+                        fi
+                    done < "$conf_file"
+                    mv "$TMP_CONF" "$conf_file"
+                done
+            fi
+        done
+        if [[ $FOUND_SDB -eq 0 ]]; then
+            echo "[-] No systemd-boot configurations found."
+        fi
+    fi
     
     echo "[*] Removing custom network/latency sysctl rules..."
     rm -f /etc/sysctl.d/99-zxcv-gaming.conf
@@ -80,7 +185,7 @@ if [[ "$MENU_CHOICE" =~ ^[Rr]$ ]]; then
     rm -f /etc/udev/rules.d/99-custom-schedulers.rules
     
     echo "[*] Restoring Swap, ZRAM, and Privilege Limits..."
-    rm -f /etc/systemd/zram-generator.conf.d/99-disable.conf
+    systemctl unmask systemd-zram-setup@.service > /dev/null 2>&1
     rm -f /etc/security/limits.d/99-gaming-privileges.conf
     sed -i -E 's/^#+(.*\bswap\b.*)/\1/' /etc/fstab
     systemctl unmask swap.target > /dev/null 2>&1
@@ -91,13 +196,27 @@ if [[ "$MENU_CHOICE" =~ ^[Rr]$ ]]; then
     rm -f /usr/local/bin/core-sweep.sh
     
     echo "[*] Regenerating system files..."
-    grub-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1
+    if [[ "$BOOT_CHOICE" == "1" ]] && command -v grub-mkconfig >/dev/null 2>&1; then
+        grub-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1
+    elif [[ "$BOOT_CHOICE" == "2" ]]; then
+        if command -v limine-mkinitcpio >/dev/null 2>&1; then
+            limine-mkinitcpio >/dev/null 2>&1
+        elif command -v limine-update >/dev/null 2>&1; then
+            limine-update >/dev/null 2>&1
+        fi
+    elif [[ "$BOOT_CHOICE" == "3" ]]; then
+        if command -v sdboot-manage >/dev/null 2>&1; then
+            sdboot-manage gen > /dev/null 2>&1
+        fi
+    fi
+
+    sysctl --system > /dev/null 2>&1
     systemctl daemon-reload
     udevadm control --reload-rules
     udevadm trigger --action=change
     
     echo "========================================================="
-    echo " REVERT COMPLETE! System restored to stock CachyOS."
+    echo " REVERT COMPLETE! System restored to stock configuration."
     echo "========================================================="
     read -p "> Reboot now to apply? (y/N): " REBOOT_ANS
     if [[ "$REBOOT_ANS" =~ ^[Yy]$ ]]; then
@@ -106,31 +225,33 @@ if [[ "$MENU_CHOICE" =~ ^[Rr]$ ]]; then
     exit 0
 fi
 
-# --- STEP 1: GATHER TARGETS & CONFIGURATIONS (APPLY MODE) ---
 echo ""
 read -p "> Are you using Intel or AMD? (i/a): " VENDOR
 read -p "> Are you using an NVIDIA GPU with Optimus / Hybrid setup? (y/N): " NVIDIA_CHOICE
 read -p "> Enable idle=poll permanently? (y/N): " POLL_CHOICE
 read -p "> Disable ALL Swap (Physical, ZRAM, and ZSWAP)? (y/N): " SWAP_CHOICE
-read -p "> Enable Strict CPU Core Isolation? (Say N for quad-core laptops) (y/N): " ISO_CHOICE
+read -p "> Enable Strict CPU Core Isolation? (Isolate the minimum amount required) (y/N): " ISO_CHOICE
 
 if [[ "$ISO_CHOICE" =~ ^[Yy]$ ]]; then
     read -p "  > Enter Housekeeping Cores (USE COMMAS ONLY, NO DASHES e.g., 0,1): " HK_CORES
     read -p "  > Enter Isolated Cores (e.g., 2-3): " ISO_CORES
-    # Calculate Hex Mask
+    
+    if [[ -z "$HK_CORES" ]] || [[ -z "$ISO_CORES" ]]; then
+        echo "[-] Error: Housekeeping and Isolated cores cannot be empty!"
+        exit 1
+    fi
+
     MASK=0
     for cpu in ${HK_CORES//,/ }; do MASK=$((MASK | (1 << cpu))); done
     HEX_MASK=$(printf '%x' $MASK)
-    # Build Isolation Params
     ISO_PARAMS="irqaffinity=$HK_CORES nohz_full=$ISO_CORES rcu_nocbs=$ISO_CORES workqueue.cpumask=$HEX_MASK isolcpus=managed_irq,$ISO_CORES"
-    RT_RUNTIME="-1" # Safe to disable throttle if cores are isolated
+    RT_RUNTIME="-1" 
 else
     ISO_PARAMS=""
     HK_CORES=""
-    RT_RUNTIME="950000" # Keep kernel safety throttle alive for shared cores
+    RT_RUNTIME="950000" 
 fi
 
-# --- STEP 2: BUILD NEW GRUB PARAMETERS ---
 BASE_PARAMS="nowatchdog mitigations=off workqueue.power_efficient=false nosoftlockup transparent_hugepage=never numa_balancing=disable audit=0 mce=off skew_tick=1 tsc=reliable rcupdate.rcu_normal_after_boot=1 rcutree.nohz_full_patience_delay=1000 threadirqs pcie_aspm.policy=performance"
 
 if [[ "$VENDOR" =~ ^[Ii]$ ]]; then
@@ -173,50 +294,130 @@ fi
 
 FINAL_PARAMS="$BASE_PARAMS $ISO_PARAMS $VENDOR_PARAMS $POLL_PARAMS $NVIDIA_PARAMS $SWAP_PARAMS"
 
-# --- STEP 3: APPLY TO GRUB ---
 echo ""
-echo "[*] Rebuilding GRUB configuration..."
-GRUB_FILE="/etc/default/grub"
+echo "[*] Injecting configuration into selected Bootloader..."
 
-TARGET_LINE=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE" | grep -v 'tuned_params' | head -n 1)
-OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^GRUB_CMDLINE_LINUX_DEFAULT=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
+if [[ "$BOOT_CHOICE" == "1" ]]; then
+    if [[ -f /etc/default/grub ]]; then
+        GRUB_FILE="/etc/default/grub"
+        TARGET_LINE=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE" | grep -v 'tuned_params' | head -n 1)
+        OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^GRUB_CMDLINE_LINUX_DEFAULT=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
+        CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+        if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE"; then
+            sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$CLEAN_BASE $FINAL_PARAMS\"|" "$GRUB_FILE"
+        else
+            echo "GRUB_CMDLINE_LINUX_DEFAULT=\"$FINAL_PARAMS\"" >> "$GRUB_FILE"
+        fi
+    else
+        echo "[-] Error: /etc/default/grub not found."
+    fi
+elif [[ "$BOOT_CHOICE" == "2" ]]; then
+    FOUND_LIMINE=0
+    if [[ -f /etc/default/limine ]]; then
+        FOUND_LIMINE=1
+        TMP_LIMINE=$(mktemp)
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" =~ ^KERNEL_CMDLINE\[(.*)\]=\"(.*)\" ]]; then
+                KEY="${BASH_REMATCH[1]}"
+                OLD_CMD="${BASH_REMATCH[2]}"
+                CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                echo "KERNEL_CMDLINE[$KEY]=\"$CLEAN_BASE $FINAL_PARAMS\"" >> "$TMP_LIMINE"
+            else
+                echo "$line" >> "$TMP_LIMINE"
+            fi
+        done < /etc/default/limine
+        mv "$TMP_LIMINE" /etc/default/limine
+    fi
+    for raw_conf in /boot/limine.conf /boot/efi/limine.conf; do
+        if [[ -f "$raw_conf" ]]; then
+            FOUND_LIMINE=1
+            TMP_RAW=$(mktemp)
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ "$line" =~ ^([[:space:]]*cmdline:[[:space:]]*)(.*)$ ]]; then
+                    PREFIX="${BASH_REMATCH[1]}"
+                    OLD_CMD="${BASH_REMATCH[2]}"
+                    CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                    echo "${PREFIX}${CLEAN_BASE} $FINAL_PARAMS" >> "$TMP_RAW"
+                else
+                    echo "$line" >> "$TMP_RAW"
+                fi
+            done < "$raw_conf"
+            mv "$TMP_RAW" "$raw_conf"
+        fi
+    done
+    if [[ $FOUND_LIMINE -eq 0 ]]; then
+        echo "[-] Error: No Limine configuration files found."
+    fi
+elif [[ "$BOOT_CHOICE" == "3" ]]; then
+    FOUND_SDB=0
+    if [[ -f /etc/sdboot-manage.conf ]]; then
+        FOUND_SDB=1
+        if grep -q '^LINUX_OPTIONS=' /etc/sdboot-manage.conf; then
+            TARGET_LINE=$(grep '^LINUX_OPTIONS=' /etc/sdboot-manage.conf | head -n 1)
+            OLD_CMD=$(echo "$TARGET_LINE" | sed -E 's/^LINUX_OPTIONS=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
+            CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+            sed -i "s|^LINUX_OPTIONS=.*|LINUX_OPTIONS=\"$CLEAN_BASE $FINAL_PARAMS\"|" /etc/sdboot-manage.conf
+        else
+            echo "LINUX_OPTIONS=\"$FINAL_PARAMS\"" >> /etc/sdboot-manage.conf
+        fi
+    fi
+    for cmd_file in /etc/kernel/cmdline; do
+        if [[ -f "$cmd_file" ]]; then
+            FOUND_SDB=1
+            OLD_CMD=$(cat "$cmd_file")
+            CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+            echo "$CLEAN_BASE $FINAL_PARAMS" > "$cmd_file"
+        fi
+    done
+    for conf_dir in /boot/loader/entries /efi/loader/entries /boot/efi/loader/entries; do
+        if [[ -d "$conf_dir" ]]; then
+            for conf_file in "$conf_dir"/*.conf; do
+                [[ -e "$conf_file" ]] || continue
+                FOUND_SDB=1
+                TMP_CONF=$(mktemp)
+                while IFS= read -r line || [[ -n "$line" ]]; do
+                    if [[ "$line" =~ ^([[:space:]]*options[[:space:]]+)(.*)$ ]]; then
+                        PREFIX="${BASH_REMATCH[1]}"
+                        OLD_CMD="${BASH_REMATCH[2]}"
+                        CLEAN_BASE=$(clean_cmdline "$OLD_CMD")
+                        echo "${PREFIX}${CLEAN_BASE} $FINAL_PARAMS" >> "$TMP_CONF"
+                    else
+                        echo "$line" >> "$TMP_CONF"
+                    fi
+                done < "$conf_file"
+                mv "$TMP_CONF" "$conf_file"
+            done
+        fi
+    done
+    if [[ $FOUND_SDB -eq 0 ]]; then
+        echo "[-] Error: No systemd-boot configurations found."
+    fi
+fi
 
-CLEAN_BASE=$(echo "$OLD_CMD" | sed -E 's/\b(mitigations|workqueue\.power_efficient|transparent_hugepage|numa_balancing|audit|mce|skew_tick|tsc|rcupdate\.rcu_normal_after_boot|rcutree\.nohz_full_patience_delay|irqaffinity|nohz_full|rcu_nocbs|workqueue\.cpumask|isolcpus|intel_pstate|amd_pstate|processor\.max_cstate|intel_idle\.max_cstate|zswap\.enabled|nvidia-drm\.modeset|nvidia-drm\.fbdev|intel_iommu|amd_iommu|iommu|pcie_aspm\.policy)=[^ ]*//g')
-CLEAN_BASE=$(echo "$CLEAN_BASE" | sed -E 's/\b(nowatchdog|nosoftlockup|idle=poll|threadirqs)\b//g')
-CLEAN_BASE=$(echo "$CLEAN_BASE" | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
-
-NEW_CMDLINE="GRUB_CMDLINE_LINUX_DEFAULT=\"$CLEAN_BASE $FINAL_PARAMS\""
-
-sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/ { /tuned_params/!d }' "$GRUB_FILE"
-sed -i "/^GRUB_DISTRIBUTOR/a $NEW_CMDLINE" "$GRUB_FILE"
-
-# --- STEP 4: SWAP & ZRAM CONTROL ---
 if [[ "$SWAP_CHOICE" =~ ^[Yy]$ ]]; then
     echo "[*] Permanently disabling all Physical Swap, ZSWAP, and ZRAM..."
     swapoff -a 2>/dev/null
     sed -i -E 's/^([^#].*\bswap\b.*)/#\1/' /etc/fstab
     systemctl mask swap.target > /dev/null 2>&1
     
-    mkdir -p /etc/systemd/zram-generator.conf.d
-    echo -e "[zram0]\nzram-size = 0" > /etc/systemd/zram-generator.conf.d/99-disable.conf
+    # Masking the zram generator template service is the proper Arch/CachyOS way to disable ZRAM completely
+    systemctl mask systemd-zram-setup@.service > /dev/null 2>&1
 else
     echo "[*] Ensuring Swap and ZRAM subsystems are enabled..."
     sed -i -E 's/^#+(.*\bswap\b.*)/\1/' /etc/fstab
     systemctl unmask swap.target > /dev/null 2>&1
-    rm -f /etc/systemd/zram-generator.conf.d/99-disable.conf
+    systemctl unmask systemd-zram-setup@.service > /dev/null 2>&1
 fi
 
-# --- STEP 5: USER REAL-TIME & MEMLOCK PRIVILEGES ---
 echo "[*] Granting all users Real-Time (chrt) and Memory Lock (mlock) privileges..."
 mkdir -p /etc/security/limits.d
-cat <<EOF > /etc/security/limits.d/99-gaming-privileges.conf
+cat <<EOF> /etc/security/limits.d/99-gaming-privileges.conf
 * - rtprio 99
 * - memlock unlimited
 EOF
 
-# --- STEP 6: NETWORK & LATENCY SYSCTL ---
 echo "[*] Applying deterministic Network & Latency Sysctl rules..."
-cat <<EOF > /etc/sysctl.d/99-zxcv-gaming.conf
+cat <<EOF> /etc/sysctl.d/99-zxcv-gaming.conf
 # Memory / VM
 vm.swappiness=10
 vm.dirty_ratio=10
@@ -238,32 +439,31 @@ net.core.busy_poll=50
 net.ipv4.tcp_fastopen=3
 EOF
 
-# --- STEP 7: I/O SCHEDULERS ---
 echo "[*] Applying Universal I/O Schedulers..."
-cat <<EOF > /etc/udev/rules.d/99-custom-schedulers.rules
-ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
-ACTION=="add|change", KERNEL=="sd[a-z]|mmcblk[0-9]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="kyber"
-ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
+cat <<EOF> /etc/udev/rules.d/99-custom-schedulers.rules
+ACTION=="add|change", KERNEL=="nvme[0-9]*", ENV{DEVTYPE}=="disk", ATTR{queue/scheduler}="none"
+ACTION=="add|change", KERNEL=="sd[a-z]*", ENV{DEVTYPE}=="disk", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="kyber"
+ACTION=="add|change", KERNEL=="mmcblk[0-9]*", ENV{DEVTYPE}=="disk", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="kyber"
+ACTION=="add|change", KERNEL=="sd[a-z]*", ENV{DEVTYPE}=="disk", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
 EOF
 
-# --- STEP 8: SYSTEMD AFFINITY & CORE SWEEP (ONLY IF ISOLATED) ---
 if [[ "$ISO_CHOICE" =~ ^[Yy]$ ]]; then
     echo "[*] Forcing systemd and user-space apps to Housekeeping cores..."
     mkdir -p /etc/systemd/system.conf.d/
-    cat <<EOF > /etc/systemd/system.conf.d/99-affinity.conf
+    cat <<EOF> /etc/systemd/system.conf.d/99-affinity.conf
 [Manager]
 CPUAffinity=$HK_CORES
 EOF
 
     echo "[*] Generating Dynamic Core Sweep Service..."
-    cat <<EOF > /usr/local/bin/core-sweep.sh
+    cat <<EOF> /usr/local/bin/core-sweep.sh
 #!/usr/bin/env bash
 taskset -pc $HK_CORES 2 2>/dev/null
 for tid in \$(ps -eT -o tid= | tr -d ' '); do
     taskset -pc $HK_CORES \$tid 2>/dev/null
 done
 for wq in /sys/devices/virtual/workqueue/*/cpumask; do
-    echo $HEX_MASK > "\$wq" 2>/dev/null
+    echo "$HEX_MASK" > "\$wq" 2>/dev/null
 done
 echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null 2>&1
 for irq_tid in \$(ps -eT -o tid,comm | awk '\$2 ~ /^irq\// {print \$1}'); do
@@ -272,10 +472,10 @@ done
 EOF
     chmod +x /usr/local/bin/core-sweep.sh
 
-    cat <<EOF > /etc/systemd/system/core-sweep.service
+    cat <<EOF> /etc/systemd/system/core-sweep.service
 [Unit]
 Description=Dynamic Kernel Thread Sweep (Cores $HK_CORES)
-After=multi-user.target tuned.service
+After=multi-user.target
 
 [Service]
 Type=oneshot
@@ -294,9 +494,21 @@ else
     rm -f /usr/local/bin/core-sweep.sh
 fi
 
-# --- STEP 9: REBUILD AND RELOAD ---
 echo "[*] Regenerating system files..."
-grub-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1
+if [[ "$BOOT_CHOICE" == "1" ]] && command -v grub-mkconfig >/dev/null 2>&1; then
+    grub-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1
+elif [[ "$BOOT_CHOICE" == "2" ]]; then
+    if command -v limine-mkinitcpio >/dev/null 2>&1; then
+        limine-mkinitcpio >/dev/null 2>&1
+    elif command -v limine-update >/dev/null 2>&1; then
+        limine-update >/dev/null 2>&1
+    fi
+elif [[ "$BOOT_CHOICE" == "3" ]]; then
+    if command -v sdboot-manage >/dev/null 2>&1; then
+        sdboot-manage gen > /dev/null 2>&1
+    fi
+fi
+
 sysctl --system > /dev/null 2>&1
 systemctl daemon-reload
 udevadm control --reload-rules
