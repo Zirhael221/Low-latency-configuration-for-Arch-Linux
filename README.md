@@ -1,24 +1,21 @@
 # Low-latency-configuration-for-Arch-Linux
 Collection of parameters and configurations to tune Arch Linux and CachyOS for ultra-low latency, deterministic thread scheduling, and zero OS jitter in competitive gaming.
 
----
-
 # zxcv.cpu.partition
 
 A hardcore, kernel-level tuning utility designed to eliminate micro-stutters, bypass hardware interrupts, and minimize jitter for gaming on Linux.
+FPS and Computational performance are not a metric considered in this configuration. It may or may not increase or decrease your fps and computational power. Latency and jitter are the primary considerations here.
 
 Built specifically for modern Arch Linux and CachyOS systems, this script reaches into the Linux scheduler, memory manager, power management, and I/O subsystems to force your operating system to prioritize game rendering above everything else.
 
 ⚠️ **WARNING:** This script is designed for extreme performance. It disables hardware CPU security mitigations (Spectre/Meltdown) to reclaim raw speed, disables swap subsystems to eliminate page faults, and blinds kernel watchdogs to prevent preemptive game interruptions. Do not run this on a production server without backups.
 
----
 
 ## 🛑 Why GameMode and Custom Schedulers are Obsolete
 
 * **Feral GameMode (`gamemoderun`):** GameMode is a user-space daemon that alters CPU governors and adjusts process niceness. This script handles CPU governors, memory limits, and I/O policies directly at the root kernel level. Furthermore, games are launched under **Real-Time Round-Robin priority (`chrt -r 50`)**, which strictly outranks and bypasses standard user-space priority queues. Running GameMode simultaneously creates redundant overhead and conflicting thread management.
 * **Custom CPU Schedulers (BORE, EEVDF, Cachy, CacULE):** Alternative CPU schedulers balance timeslices among competing `SCHED_OTHER` desktop tasks. When game threads run under `SCHED_RR` on isolated cores (`isolcpus`, `nohz_full`, `rcu_nocbs`), standard scheduler algorithms are completely bypassed—the kernel hands CPU cycles directly to the real-time thread.
 
----
 
 ## ⚠️ Requirements & Conflicts (CachyOS / Arch Users)
 
@@ -28,7 +25,6 @@ Before running the tuner, disable conflicting user-space tuning daemons that alt
 sudo systemctl disable --now ananicy-cpp irqbalance tuned
 ```
 
----
 
 ## 🚀 Features & Technical Breakdown
 
@@ -58,7 +54,6 @@ sudo systemctl disable --now ananicy-cpp irqbalance tuned
 * **SATA SSDs:** Applies low-latency request prioritization (`kyber`).
 * **Mechanical HDDs:** Uses budget-fair queuing to prevent background read starvation (`bfq`).
 
----
 
 ## 📊 Benchmark Proof (Real-Time Latency & Jitter)
 
@@ -84,7 +79,6 @@ T: 2 ( 4065) P:99 I:2000 C:  29998 Min:      1 Act:    1 Avg:    1 Max:       5
 * **Avg: 1 µs:** Isolated gaming cores respond to real-time wakeups with an average latency of 0.001 ms.
 * **Max: 9 / 6 / 5 µs:** Peak worst-case scheduling delay across all cores remained under **0.009 ms** under full load, compared to 200–500+ µs typical on stock desktop configurations.
 
----
 
 ## 🛠️ Installation
 
@@ -97,8 +91,6 @@ T: 2 ( 4065) P:99 I:2000 C:  29998 Min:      1 Act:    1 Avg:    1 Max:       5
    sudo mv zxcvcpupartition.txt /usr/local/bin/zxcv.cpu.partition
    sudo chmod +x /usr/local/bin/zxcv.cpu.partition
    ```
-
----
 
 ## 🎮 Usage
 
@@ -132,7 +124,6 @@ chrt -r 50 taskset -c <YOUR_ISOLATED_CORES> %command%
 chrt -r 50 %command%
 ```
 
----
 
 ## ♻️ Uninstallation
 
@@ -141,7 +132,6 @@ To revert all modifications:
 2. Select `R` at the prompt.
 3. The script will remove GRUB flags, restore sysctl rules, re-enable swap, remove systemd affinity overrides, delete sweep services, and rebuild your bootloader.
 
----
 
 ## 🙌 Credits & References
 * [Low Latency System Guide](https://lowlatencysystem.com/guide/)
