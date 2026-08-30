@@ -72,7 +72,15 @@ Example (Ryzen 9 5900X): This CPU has 12 cores split across two 6-core CCXs. Ass
 60-second Real-Time kernel jitter benchmark (cyclictest) on isolated cores running under Round-Robin (SCHED_RR) priority. 
 (Requires the rt-tests package: sudo pacman -S rt-tests)
    ```
-   sudo cyclictest --affinity=1-3 --threads=3 --priority=99 --policy=rr --interval=1000 --duration=60s -m
+~ sudo cyclictest --affinity=1-3 --threads=3 --priority=99 --interval=1000 --duration=60s -m
+/dev/cpu_dma_latency set to 0us
+policy: fifo: loadavg: 0.47 1.01 0.76 1/409 4079
+
+T: 0 ( 4063) P:99 I:1000 C:  59996 Min:      1 Act:    1 Avg:    1 Max:       9
+T: 1 ( 4064) P:99 I:1500 C:  39997 Min:      1 Act:    1 Avg:    1 Max:       6
+T: 2 ( 4065) P:99 I:2000 C:  29998 Min:      1 Act:    1 Avg:    1 Max:       5
+
+~ 1m
    ```
 
 Understanding the Metrics:
