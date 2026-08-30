@@ -44,7 +44,7 @@ Built specifically for modern Arch/CachyOS systems, this script reaches deep int
 
 ## 📊 Benchmark Proof (Real-Time Latency & Jitter)
 
-To prove how effectively this script clears out OS bloat and prioritizes raw hardware speed, here is a 60-second Real-Time kernel benchmark (`cyclictest`) run on isolated cores using `chrt -r 99`.
+To prove how effectively this script clears out OS bloat and prioritizes raw hardware speed, here is a 60-second Real-Time kernel benchmark (`cyclictest`) run on isolated cores.
 
 /dev/cpu_dma_latency set to 0us
 policy: fifo: loadavg: 0.47 1.01 0.76 1/409 4079
