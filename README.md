@@ -1,8 +1,3 @@
-# Low-latency-configuration-for-Arch-Linux
-Collection of parameters and configurations to tune Arch Linux and CachyOS for ultra-low latency, deterministic thread scheduling, and zero OS jitter in competitive gaming.
-
-# zxcv.cpu.partition
-
 A hardcore, kernel-level tuning utility designed to eliminate micro-stutters, bypass hardware interrupts, and minimize jitter for gaming on Linux.
 
 Built specifically for modern Arch Linux and CachyOS systems, this script reaches into the Linux scheduler, memory manager, power management, and I/O subsystems to force your operating system to prioritize game rendering above everything else.
@@ -24,27 +19,34 @@ sudo systemctl disable --now ananicy-cpp irqbalance tuned
 ```
 
 VM / VFIO Users: This script disables IOMMU (iommu=off) to reduce DMA latency. This will break PCI Passthrough (VFIO) for Virtual Machines. Do not use this script on a host system dedicated to VM GPU passthrough.
-🚀 Features & Technical Breakdown
+
+Features & Technical Breakdown
 1. Official CachyOS Bootloader Integration (GRUB, Limine, systemd-boot)
 What it does: Seamlessly parses and updates GRUB, Limine, and systemd-boot using native CachyOS utilities.
 How it works: You explicitly select your bootloader. For systemd-boot, the script hooks directly into /etc/sdboot-manage.conf and executes sdboot-manage gen. For Limine, it edits KERNEL_CMDLINE arrays in /etc/default/limine and natively triggers limine-mkinitcpio. (Fallback logic is included for standard Arch users without these utilities).
-2. CPU Core Isolation & Thread Sweeping
+
+3. CPU Core Isolation & Thread Sweeping
 What it does: Dedicates target CPU cores exclusively to game threads, while constraining all OS services, systemd units, and driver workqueues to designated "Housekeeping" cores.
 Zero Preemption: Isolated cores disable scheduler tick interrupts (nohz_full) and offload RCU callbacks (rcu_nocbs), giving game threads uninterrupted core time.
 Dynamic Core Sweep: A dedicated boot service sweeps active and new kernel worker threads back onto housekeeping cores on startup.
-3. GPU & Direct Memory Access (DMA / IOMMU)
+
+5. GPU & Direct Memory Access (DMA / IOMMU)
 What it does: Disables IOMMU translation layers (iommu=off, intel_iommu=off / amd_iommu=off) and locks PCIe bus power (pcie_aspm.policy=performance).
 Why it matters: Eliminates virtualization and memory security checkpoint overhead for the GPU and storage controllers, allowing bare-metal DMA access directly to RAM. Also injects NVIDIA DRM modesetting (nvidia-drm.modeset=1 nvidia-drm.fbdev=1) to prevent frame sync deadlocks on Optimus laptops.
-4. Swap Assassination & Unlimited Memory Locking
+
+7. Swap Assassination & Unlimited Memory Locking
 What it does: Disables physical swap partitions, ZSWAP, and ZRAM (swapoff -a, masks swap.target), while granting non-root users unlimited real-time and memory locking privileges (rtprio 99, memlock unlimited).
 Why it matters: Mathematically eliminates disk page faults and memory paging latency. Assets remain locked in physical RAM during execution and are freed automatically by the kernel when the game closes.
-5. Deterministic Power States (C-States & Polling)
+
+9. Deterministic Power States (C-States & Polling)
 What it does: Provides an option for continuous core polling (idle=poll) or deep-sleep suppression (processor.max_cstate=1, intel_idle.max_cstate=1).
 Why it matters: Prevents CPU cores from dropping into sleep states (C2–C6), eliminating hardware wake-up latency when processing mouse events or network frames.
-6. Network Polling & Virtual Memory Sysctl
+
+10. Network Polling & Virtual Memory Sysctl
 What it does: Enables Linux socket busy polling (busy_read=50, busy_poll=50) and tunes dirty memory writeback intervals.
 Why it matters: The CPU actively checks network sockets for inbound packets instead of waiting on hardware interrupts, reducing round-trip packet processing delay.
-7. Storage I/O Scheduler Assignment
+
+11. Storage I/O Scheduler Assignment
 NVMe: Bypasses software queuing entirely (none).
 SATA SSDs: Applies low-latency request prioritization (kyber).
 Mechanical HDDs: Uses budget-fair queuing to prevent background read starvation (bfq).
@@ -55,10 +57,13 @@ For the absolute lowest latency, you must understand how your physical CPU cores
 Modern Topology Warning
 Modern architectures (Intel 12th-14th Gen P-Cores/E-Cores and AMD Ryzen 7000/9000 series CCD layouts) have complex physical layouts. The old rule of "physical cores first, virtual second" no longer strictly applies. You MUST use lscpu -e or lstopo to verify your exact physical mapping before isolating cores to avoid accidentally isolating an E-core or splitting an L3 cache.
 Hyperthreading (Intel) & SMT (AMD)
+
 Recommendation: Disable HT/SMT in your motherboard BIOS. Virtual threads share the same execution pipeline and L1/L2 cache as their physical counterpart. Disabling them grants your game 100% exclusive access to the physical core's cache and execution engine.
 If you cannot disable HT/SMT (Laptops): You MUST pair a physical core and its virtual sibling together. Never put a physical core in Housekeeping and its virtual sibling in Isolated (or vice versa), as they will fight over the same cache.
+
 AMD Ryzen Architecture (CCX & L3 Cache)
 AMD processors group cores into Core Complexes (CCX). Cores inside the same CCX share a massive, ultra-fast L3 cache. If a game has to communicate across two different CCXs, the data travels over the slower Infinity Fabric, introducing latency and micro-stutters.
+
 Recommendation: When choosing Housekeeping and Isolated cores on AMD, isolate an entire CCX for the game and leave the other CCX for the operating system.
 Example (Ryzen 9 5900X): This CPU has 12 cores split across two 6-core CCXs. Assign CCX0 (Cores 0,1,2,3,4,5) to Housekeeping. Assign CCX1 (Cores 6-11) to Isolated. Your game now has a massive L3 cache entirely to itself with zero cross-CCX delay.
 
