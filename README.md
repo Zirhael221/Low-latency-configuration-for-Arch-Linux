@@ -69,14 +69,18 @@ Recommendation: When choosing Housekeeping and Isolated cores on AMD, isolate an
 Example (Ryzen 9 5900X): This CPU has 12 cores split across two 6-core CCXs. Assign CCX0 (Cores 0,1,2,3,4,5) to Housekeeping. Assign CCX1 (Cores 6-11) to Isolated. Your game now has a massive L3 cache entirely to itself with zero cross-CCX delay.
 
 ### Benchmark Proof (Real-Time Latency & Jitter)
-60-second Real-Time kernel jitter benchmark (cyclictest) on isolated cores running under Round-Robin (SCHED_RR) priority. (Requires the rt-tests package: sudo pacman -S rt-tests)
+60-second Real-Time kernel jitter benchmark (cyclictest) on isolated cores running under Round-Robin (SCHED_RR) priority. 
+(Requires the rt-tests package: sudo pacman -S rt-tests)
    ```
    sudo cyclictest --affinity=1-3 --threads=3 --priority=99 --policy=rr --interval=1000 --duration=60s -m
    ```
 
 Understanding the Metrics:
+
 /dev/cpu_dma_latency set to 0us: Confirms hardware C-state sleep locks are fully enforced.
+
 Avg: 1 µs: Isolated gaming cores respond to real-time wakeups with an average latency of 0.001 ms.
+
 Max: 9 / 6 / 5 µs: Peak worst-case scheduling delay across all cores remained under 0.009 ms under full load, compared to 200–500+ µs typical on stock desktop configurations.
 
 Installation
