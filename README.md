@@ -23,32 +23,43 @@ VM / VFIO Users: This script disables IOMMU (iommu=off) to reduce DMA latency. T
 ### Features & Technical Breakdown
 1. Official CachyOS Bootloader Integration (GRUB, Limine, systemd-boot)
 What it does: Seamlessly parses and updates GRUB, Limine, and systemd-boot using native CachyOS utilities.
-How it works: You explicitly select your bootloader. For systemd-boot, the script hooks directly into /etc/sdboot-manage.conf and executes sdboot-manage gen. For Limine, it edits KERNEL_CMDLINE arrays in /etc/default/limine and natively triggers limine-mkinitcpio. (Fallback logic is included for standard Arch users without these utilities).
+
+How it works: You explicitly select your bootloader. For systemd-boot, the script hooks directly into /etc/sdboot-manage.conf and executes sdboot-manage gen. 
+
+For Limine, it edits KERNEL_CMDLINE arrays in /etc/default/limine and natively triggers limine-mkinitcpio. (Fallback logic is included for standard Arch users without these utilities).
 
 3. CPU Core Isolation & Thread Sweeping
 What it does: Dedicates target CPU cores exclusively to game threads, while constraining all OS services, systemd units, and driver workqueues to designated "Housekeeping" cores.
+
 Zero Preemption: Isolated cores disable scheduler tick interrupts (nohz_full) and offload RCU callbacks (rcu_nocbs), giving game threads uninterrupted core time.
+
 Dynamic Core Sweep: A dedicated boot service sweeps active and new kernel worker threads back onto housekeeping cores on startup.
 
 5. GPU & Direct Memory Access (DMA / IOMMU)
 What it does: Disables IOMMU translation layers (iommu=off, intel_iommu=off / amd_iommu=off) and locks PCIe bus power (pcie_aspm.policy=performance).
+
 Why it matters: Eliminates virtualization and memory security checkpoint overhead for the GPU and storage controllers, allowing bare-metal DMA access directly to RAM. Also injects NVIDIA DRM modesetting (nvidia-drm.modeset=1 nvidia-drm.fbdev=1) to prevent frame sync deadlocks on Optimus laptops.
 
 7. Swap Assassination & Unlimited Memory Locking
 What it does: Disables physical swap partitions, ZSWAP, and ZRAM (swapoff -a, masks swap.target), while granting non-root users unlimited real-time and memory locking privileges (rtprio 99, memlock unlimited).
+
 Why it matters: Mathematically eliminates disk page faults and memory paging latency. Assets remain locked in physical RAM during execution and are freed automatically by the kernel when the game closes.
 
 9. Deterministic Power States (C-States & Polling)
 What it does: Provides an option for continuous core polling (idle=poll) or deep-sleep suppression (processor.max_cstate=1, intel_idle.max_cstate=1).
+
 Why it matters: Prevents CPU cores from dropping into sleep states (C2–C6), eliminating hardware wake-up latency when processing mouse events or network frames.
 
 10. Network Polling & Virtual Memory Sysctl
 What it does: Enables Linux socket busy polling (busy_read=50, busy_poll=50) and tunes dirty memory writeback intervals.
+
 Why it matters: The CPU actively checks network sockets for inbound packets instead of waiting on hardware interrupts, reducing round-trip packet processing delay.
 
 11. Storage I/O Scheduler Assignment
 NVMe: Bypasses software queuing entirely (none).
+
 SATA SSDs: Applies low-latency request prioritization (kyber).
+
 Mechanical HDDs: Uses budget-fair queuing to prevent background read starvation (bfq).
 
 ### Core Topology Guide (SMT, HT, & AMD CCX)
